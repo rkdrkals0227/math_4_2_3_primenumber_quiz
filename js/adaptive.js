@@ -1,0 +1,35 @@
+/* 정수 단위 자동 출제 + 구역별 적응 난도. 렌더링과 독립적으로 검사할 수 있습니다. */
+(function(F){
+const cfg=F.learningConfig,fmt=(n,d=2)=>(n/100).toFixed(d),int=(r,a,b)=>a+Math.floor(r()*(b-a+1));
+const fresh=()=>({generated:true,next:1,lastSolved:0,skills:Array.from({length:6},()=>({tier:0,streak:0,supported:0,solved:0,recent:[]}))});
+function restore(raw){const l=fresh();if(!raw||typeof raw!=='object')return l;const num=(v,min,max,def)=>Number.isSafeInteger(v)&&v>=min&&v<=max?v:def;l.generated=raw.generated!==false;l.next=num(raw.next,1,Number.MAX_SAFE_INTEGER-1,1);l.lastSolved=num(raw.lastSolved,0,l.next-1,0);l.skills=l.skills.map((d,i)=>{const a=raw.skills?.[i];if(!a||typeof a!=='object')return d;return {tier:num(a.tier,0,3,0),streak:num(a.streak,0,100,0),supported:num(a.supported,0,100,0),solved:num(a.solved,0,10000000,0),recent:Array.isArray(a.recent)?a.recent.filter(x=>typeof x==='string').slice(-cfg.recentLimit):[]};});return l;}
+const oldFresh=F.fresh,oldLoad=F.load,oldSolve=F.solve;
+F.fresh=()=>({...oldFresh(),learning:fresh()});
+F.load=()=>{const s=oldLoad();let r;try{r=JSON.parse(localStorage.getItem('decimal-farm-v1'));}catch{}s.learning=restore(r?.learning);const used=s.done.flat().reduce((n,id)=>Math.max(n,Number(/^generated-(\d+)$/.exec(id)?.[1]||0)),0);s.learning.next=Math.max(s.learning.next,used+1);return s;};
+F.ensureLearning=s=>s.learning||(s.learning=fresh());
+F.exchangeCount=(a,b,op)=>{let c=0,n=0;for(let i=0;i<3;i++){const x=Math.floor(a/10**i)%10,y=Math.floor(b/10**i)%10;if(op==='+'){c=x+y+c>=10?1:0;}else c=x-c<y?1:0;n+=c;}return n;};
+F.makeArithmetic=(z,tier,r=Math.random)=>{const op=z<2?'+':z===2?'−':r()<.5?'+':'−',digits=tier===0?1:2,step=digits===1?10:1;let a,b,n,ex;
+const carries=z===1||tier>=2;const multi=tier>=3;
+for(let i=0;i<2000;i++){a=int(r,11,899);b=int(r,11,699);a=Math.floor(a/step)*step;b=Math.floor(b/step)*step;if(op!=='+'&&a<b)[a,b]=[b,a];n=op==='+'?a+b:a-b;ex=F.exchangeCount(a,b,op);if(n<=0||a%100===0&&b%100===0)continue;if(multi?ex>=2:carries?ex===1:ex===0)break;}
+/* 무작위 후보가 부족해도 난도 조건을 보장하는 예비 문제입니다. */
+if(multi&&ex<2){a=op==='+'?375:500;b=op==='+'?148:175;}else if(!multi&&carries&&ex!==1){a=digits===1?270:235;b=digits===1?160:145;}else if(!carries&&ex!==0){a=digits===1?240:234;b=digits===1?130:123;}
+n=op==='+'?a+b:a-b;const A=fmt(a,digits),B=fmt(b,digits),answer=fmt(n,digits);
+return {kind:'arithmetic',a:A,b:B,op,answer,exchanges:F.exchangeCount(a,b,op),display:`${A} ${op} ${B} = ?`,story:z===3?(op==='+'?`당근 ${A} kg과 토마토 ${B} kg을 담았어요. 모두 몇 kg인가요?`:`물 ${A} L 중 ${B} L를 썼어요. 몇 L가 남았나요?`):'소수점을 맞추고 같은 자리끼리 계산해 보자.',hint:op==='+'?'오른쪽 자리부터 더해 봐. 10이 되면 왼쪽 자리로 1을 올려 줘.':'오른쪽 자리부터 빼 봐. 뺄 수 없으면 왼쪽 자리의 1을 10으로 바꾸어 빌려 와.',explanation:`${fmt(a)} ${op} ${fmt(b)} = ${answer}. ${F.exchangeCount(a,b,op)?'자리끼리 계산하며 '+(op==='+'?'받아올림':'받아내림')+'을 확인했어.':'소수점 끝의 0은 생략해도 같은 값이야.'}`};};
+F.makeRelation=(tier,r=Math.random,type)=>{const k=type??int(r,0,3),a=int(r,11,799),A=fmt(a);if(k===0){const b=tier===0?int(r,1,79)*10:[a,a+int(r,1,9),a-int(r,1,9),Math.floor(a/100)*100+(a%10)*10][int(r,0,3)],B=fmt(b),answer=a<b?'<':a>b?'>':'=';return {kind:'compare',a:A,b:B,answer,choices:['<','=','>'],display:`${A} □ ${B}`,story:'두 소수 사이에 알맞은 기호를 골라 줘.',hint:'자연수 부분부터 비교해 봐. 같으면 소수 첫째 자리, 둘째 자리 순서로 비교해.',explanation:`${A} ${answer} ${B}. 소수점 자리를 맞추고 왼쪽 자리부터 비교할 수 있어.`};}
+if(k===1){const n=int(r,1,79)*10,A=fmt(n,1),options=[fmt(n),fmt(n+1),fmt(n+10)];for(let i=options.length-1;i>0;i--){const j=int(r,0,i);[options[i],options[j]]=[options[j],options[i]];}return {kind:'equivalent',a:A,answer:A,choices:options,display:`${A}와 같은 값은?`,story:'별씨앗 무게가 같은 바구니를 찾아 줘.',hint:'소수점 아래 마지막에 0을 붙여도 값은 변하지 않아.',explanation:`${A} = ${fmt(n)}. 소수점 아래 끝의 0은 값에 영향을 주지 않아.`};}
+if(k===3){const unit=tier<2?10:1,count=int(r,11,tier<2?79:399),value=unit*count;return {kind:'place',answer:fmt(value),display:`${fmt(unit)}이 ${count}개이면?`,story:'작은 소수가 모여 어떤 수가 될까요?',hint:`${fmt(unit)}이 10개 모이면 ${fmt(unit*10)}이 돼. 10개씩 묶어서 생각해 봐.`,explanation:`${fmt(unit)}이 ${count}개 모이면 ${fmt(value)}이야. 같은 크기의 작은 수를 모아 큰 수를 만들 수 있어.`};}
+const base=F.makeArithmetic(0,tier,r),part=F.hundredths(base.a),b=F.hundredths(base.b),total=part+b,partText=base.a;return {kind:'missing',a:fmt(total),b:partText,op:'−',answer:fmt(b),display:`${partText} + □ = ${fmt(total)}`,story:'상자를 채우려면 얼마나 더 필요할까요? 빈칸에 들어갈 수를 써 줘.',hint:'전체에서 이미 있는 양을 빼면 더 필요한 양을 알 수 있어.',explanation:`${fmt(total)} − ${partText} = ${fmt(b)}. ${partText} + ${fmt(b)} = ${fmt(total)}로 확인해 봐.`};};
+F.nextAdaptive=(s,z,mode='mixed',r=Math.random)=>{const l=F.ensureLearning(s),count=Math.min(5,s.done[z].length)+(s.practice[z]||0),relation=mode==='relations'||(count+1)%cfg.relationEvery===0,skill=relation?5:z,rec=l.skills[skill];let q,sig;for(let i=0;i<30;i++){q=relation?F.makeRelation(rec.tier,r):F.makeArithmetic(z,rec.tier,r);sig=[q.kind,q.display,q.answer].join('|');if(!rec.recent.includes(sig))break;}rec.recent.push(sig);rec.recent=rec.recent.slice(-cfg.recentLimit);const serial=l.next++;return {...q,id:`generated-${serial}`,serial,generated:true,skill,tier:rec.tier,practiceOnly:mode==='relations',wrong:0,support:false};};
+F.noteLearningHelp=(s,q,wrong=false)=>{if(!q.generated)return;q.support=true;if(wrong)q.wrong++;if(wrong&&q.wrong===2&&!q.eased){const rec=s.learning.skills[q.skill];rec.tier=Math.max(0,rec.tier-1);rec.streak=0;q.eased=true;}};
+F.recordLearning=(s,q)=>{const rec=s.learning.skills[q.skill];rec.solved++;if(q.support){rec.streak=0;rec.supported++;if(rec.supported>=cfg.supportedBeforeEase){if(!q.eased)rec.tier=Math.max(0,rec.tier-1);rec.supported=0;}}else{rec.supported=0;rec.streak++;if(rec.streak>=cfg.promotionStreak){rec.tier=Math.min(3,rec.tier+1);rec.streak=0;}}};
+F.solve=(s,z,q,value)=>{const l=F.ensureLearning(s);if(q.generated&&q.serial<=l.lastSolved)return false;const repeat=q.practiceOnly||s.done[z].length>=5,len=s.done[z].length;if(!oldSolve(s,z,q,value))return false;if(q.generated){if(repeat)s.done[z].splice(len);l.lastSolved=q.serial;F.recordLearning(s,q);}return true;};
+/* 돌봄·물주기·증축도 새 숫자로 출제하되 원래 대상과 보상 검증을 유지합니다. */
+const oldAction=F.actionQuestion,oldPerform=F.perform;
+F.actionQuestion=(s,kind,target)=>{const base=oldAction(s,kind,target);if(!F.ensureLearning(s).generated)return base;const subtract=['water','animalWater','brush'].includes(kind)||kind==='event'&&base.op!=='+';const skill=subtract?2:0,rec=s.learning.skills[skill],m=F.makeArithmetic(skill,rec.tier),unit=['water','animalWater'].includes(kind)?'L':kind==='upgrade'?'m':'kg';let story;
+if(kind==='event')story=F.eventInfo(s).text+` ${m.a} ${m.op} ${m.b}를 계산해 줘.`;
+else if(subtract)story=`${kind==='brush'?'정리할 양':'준비한 양'} ${m.a} ${unit} 중 ${m.b} ${unit}를 사용했어요. 남은 양은 얼마일까요?`;
+else story=`${kind==='upgrade'?'집을 지을 나무':'농장에 필요한 재료'} ${m.a} ${unit}와 ${m.b} ${unit}를 준비해요. 모두 얼마일까요?`;
+return {...base,...m,id:base.id,kind,target,story,generated:true,skill,tier:rec.tier,wrong:0,support:false};};
+F.perform=(s,q,v)=>{const ok=oldPerform(s,q,v);if(ok&&q.generated)F.recordLearning(s,q);return ok;};
+F.learningLabels=['한 자리부터 차근차근','두 자리 소수 연습','받아올림·받아내림 도전','여러 자리 연결 도전'];
+})(Farm);
